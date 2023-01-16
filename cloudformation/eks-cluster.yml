@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Creates EKS Cluster'
+
+Parameters:
+  EKSIAMRoleName:
+    Type: String
+    Description: The name of the IAM role for the EKS service to assume.
+    Default: test-eks-role
+  VPCStackName:
+    Type: String
+    Description: Name of the VPC stack
+    MinLength : 1
+    MaxLength : 255
+    AllowedPattern : "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: av-infra-poc-vpc-test
+  EKSClusterName:
+    Type: String
+    Description: The name of your AWS EKS Cluster.
+    Default: av-infra-test-cluster
+
+  NodeAutoScalingGroupDesiredCapacity1:
+    Type: Number
+    Default: 1
+    Description: Desired capacity of Node Group ASG.
+
+  NodeAutoScalingGroupMaxSize1:
+    Type: Number
+    Default: 2
+    Description: Maximum size of Node Group ASG. Set to at least 1 greater than NodeAutoScalingGroupDesiredCapacity.
+
+  NodeAutoScalingGroupMinSize1:
+    Type: Number
+    Default: 1
+    Description: Minimum size of Node Group ASG.
+
+Resources:
+  # This is the role AirVantage cluster admins need to assume to connect to the kubernetes cluster using the kubectl client.
+  # This role has to be added to the EKS cluster using the eksctl tool:
+  EKSUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              # all users of the AWS account can assume this role
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      RoleName: !Sub ${VPCStackName}-k8s-cluster-EKSAdminUserRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # this role is just a marker for IAM users and roles to allow access to EKS cluster, so no need to give permissions to it.
+              - Effect: Deny
+                Action: "*"
+                Resource: "*"
+
+  # This is the role AirVantage team need to assume to connect to the kubernetes cluster using the kubectl client in a view mode
+  # This role has to be added to the EKS cluster using the eksctl tool:
+  EKSViewUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              # all users of the AWS account can assume this role
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      RoleName: !Sub ${VPCStackName}-k8s-cluster-EKSViewUserRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # this role is just a marker for IAM users and roles to allow access to EKS cluster, so no need to give permissions to it.
+              - Effect: Deny
+                Action: "*"
+                Resource: "*"
+
+  EKSIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      RoleName: !Ref EKSIAMRoleName
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Cluster communication with worker nodes
+      VpcId: { "Fn::ImportValue" :  {"Fn::Sub": "${VPCStackName}-VPCID" } }
+
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref EKSClusterName
+      Version: "1.23"
+      RoleArn:
+        "Fn::GetAtt": ["EKSIAMRole", "Arn"]
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+        - !Ref ControlPlaneSecurityGroup
+        SubnetIds:
+        - { "Fn::ImportValue" :  {"Fn::Sub": "${VPCStackName}-PrivateSubnet-1-ID" } }
+        - { "Fn::ImportValue" :  {"Fn::Sub": "${VPCStackName}-PrivateSubnet-2-ID" } }
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: true
+      Tags:
+        - Key: ClusterName
+          Value: !Ref EKSClusterName
+
+  EKSAddonVpcCniRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+
+  EKSAddonVpcCni:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - EKSCluster
+    Properties:
+      AddonName: vpc-cni
+      ClusterName: !Ref EKSClusterName
+      ResolveConflicts: OVERWRITE
+      ServiceAccountRoleArn:
+        "Fn::GetAtt": ["EKSAddonVpcCniRole", "Arn"]
+
+  EKSAddonKubeProxy:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - EKSCluster
+    Properties:
+      AddonName: kube-proxy
+      ClusterName: !Ref EKSClusterName
+      ResolveConflicts: OVERWRITE
+
+  EKSAddonVpcCoreDns:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - EKSCluster
+    Properties:
+      AddonName: coredns
+      ClusterName: !Ref EKSClusterName
+      ResolveConflicts: OVERWRITE
+
+  NodeInstanceRole:
+    Type: "AWS::IAM::Role"
+    DependsOn:
+      - EKSAddonVpcCni
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+        - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+      Path: /
+
+  EKSNodegroup1:
+    Type: 'AWS::EKS::Nodegroup'
+    DependsOn:
+      - EKSCluster
+      - EKSAddonVpcCni
+      - EKSAddonKubeProxy
+      - EKSAddonVpcCoreDns
+    Properties:
+      ClusterName: !Ref EKSClusterName
+      InstanceTypes: ["t2.micro"]
+      NodeRole:
+        "Fn::GetAtt": ["NodeInstanceRole", "Arn"]
+      ScalingConfig:
+        MinSize: !Ref NodeAutoScalingGroupMinSize1
+        DesiredSize: !Ref NodeAutoScalingGroupDesiredCapacity1
+        MaxSize: !Ref NodeAutoScalingGroupMaxSize1
+      Labels:
+        Key1: Value1
+        Key2: Value2
+      Subnets:
+        - { "Fn::ImportValue" :  {"Fn::Sub": "${VPCStackName}-PrivateSubnet-1-ID" } }
+        - { "Fn::ImportValue" :  {"Fn::Sub": "${VPCStackName}-PrivateSubnet-2-ID" } }

@@ -1,0 +1,34 @@
+name: CFN Checkov
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install checkov
+      shell: bash
+      run: |
+          pip3 install checkov
+
+    - name: Run CFN Checkov
+      shell: bash
+      run: |
+          checkov -s -d ./ --quiet --output cli > cfn_checkov.out
+
+    - name: Archive output # this will upload to repo for each run under action/workflow
+      uses: actions/upload-artifact@v3
+      with:
+        name: cnf-checkov-artifact
+        path: ${{ github.workspace }}/cfn_checkov.out
