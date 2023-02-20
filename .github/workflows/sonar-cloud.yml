@@ -1,12 +1,7 @@
 name: Build-Master
 on:
-  push:
-    branches:
-      - master
-  # pull_request:
-  #   branches: [ "master" ]
   pull_request:
-    types: [opened, synchronize, reopened]
+    branches: [ "master" ]
 jobs:
   build:
     name: Build
