@@ -25,7 +25,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: cnighojkar/myworkflows/.github/workflows/java-maven-build-test.yml@master
+    uses: cnighojkar/myworkflows/.github/workflows/java-maven-build-test.yml@main
     with:
       java-version: '11'
       falcon-client-id: ${{ secrets.FALCON_IVAN_CLIENT_ID }}
