@@ -1,6 +1,3 @@
-
-
-
 # simple-java-maven-app
 test test
 This repository is for the
