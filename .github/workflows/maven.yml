@@ -11,11 +11,11 @@ on:
         required: true
       falcon-client-id:
         description: falcon-client-id
-        required: true
+        required: false
       falcon-client-secret:
         description: falcon-client-secret
         type: string
-        required: true
+        required: false
   push:
     branches: [ "master" ]
 permissions:
@@ -27,8 +27,5 @@ jobs:
       contents: read
     uses: cnighojkar/myworkflows/.github/workflows/java-maven-build-test.yml@main
     with:
-      java-version: '11'
-      falcon-client-id: ${{ secrets.FALCON_IVAN_CLIENT_ID }}
-      falcon-client-secret: ${{ secrets.FALCON_IVAN_CLIENT_SECRET }}
-  
+      java-version: ${{ github.event.inputs.java-version }}
     secrets: inherit
