@@ -1,0 +1,71 @@
+name: Build
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: maven
+      - name: Build with Maven
+        run: mvn -B package --file pom.xml
+
+  test1:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.0' # Not needed with a .ruby-version file
+        bundler-cache: true # runs 'bundle install' and caches installed gems automatically
+
+    - name: Install cfn nag
+      shell: bash
+      run: |
+          gem install cfn-nag
+
+    - name: Run CFN nag
+      shell: bash
+      continue-on-error: true
+      run: |
+          cfn_nag_scan --input-path cloudformation/ -o txt > cfn_nag_scan.txt
+
+    - name: Archive output # this will upload to repo for each run under action/workflow
+      uses: actions/upload-artifact@v3
+      with:
+        name: cnf-nag-artifact
+        path: ${{ github.workspace }}/cfn_nag_scan.txt
+
+  test2:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install checkov
+      shell: bash
+      run: |
+          pip3 install checkov
+
+    - name: Run CFN Checkov
+      shell: bash
+      run: |
+          checkov -s -d ./ --quiet --output cli > cfn_checkov.out
+
+    - name: Archive output # this will upload to repo for each run under action/workflow
+      uses: actions/upload-artifact@v3
+      with:
+        name: cnf-checkov-artifact
+        path: ${{ github.workspace }}/cfn_checkov.out
