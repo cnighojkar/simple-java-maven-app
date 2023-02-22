@@ -5,6 +5,9 @@ on:
       java-version:
         description: java version to be used
         required: true
+    secrets:
+      dockerhub-username: "${{ secrets.DOCKERHUB_USERNAME }}"
+      dockerhub-token: "${{ secrets.DOCKERHUB_TOKEN }}"
   push:
     branches: [ "master" ]
 permissions:
